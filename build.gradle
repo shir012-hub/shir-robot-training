@@ -1,0 +1,188 @@
+import groovy.json.JsonSlurper
+import java.nio.charset.StandardCharsets
+
+plugins {
+    id "java"
+
+    id "edu.wpi.first.GradleRIO" version "2026.2.1"
+
+    id "com.diffplug.spotless" version "6.25.0"
+    id "net.ltgt.errorprone" version "4.1.0"
+    id "com.peterabeles.gversion" version "1.10.3"
+
+    id "idea"
+}
+
+defaultTasks "spotlessApply", "createVersionFile", "build"
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+def ROBOT_MAIN_CLASS = "frc.robot.Main"
+
+
+deploy {
+    targets {
+        roborio(getTargetTypeClass("RoboRIO")) {
+            team = project.frc.getTeamNumber()
+            debug = project.frc.getDebugOrDefault(false)
+
+            artifacts {
+                frcJava(getArtifactTypeClass("FRCJavaArtifact")) {}
+
+                frcStaticFileDeploy(getArtifactTypeClass("FileTreeArtifact")) {
+                    files = project.fileTree("src/main/deploy")
+                    directory = "/home/lvuser/deploy"
+                    deleteOldFiles = false
+                }
+            }
+        }
+    }
+}
+
+def deployArtifact = deploy.targets.roborio.artifacts.frcJava
+
+// Set to true to use debug for JNI (big performance hit).
+wpi.java.debugJni = false
+
+// Desktop support toggle (kept for clarity; GradleRIO uses it in some setups)
+def includeDesktopSupport = true
+
+
+dependencies {
+    // 2026 template includes this annotation processor
+    annotationProcessor wpi.java.deps.wpilibAnnotations()
+
+    implementation wpi.java.deps.wpilib()
+    implementation wpi.java.vendor.java()
+
+    roborioDebug wpi.java.deps.wpilibJniDebug(wpi.platforms.roborio)
+    roborioDebug wpi.java.vendor.jniDebug(wpi.platforms.roborio)
+
+    roborioRelease wpi.java.deps.wpilibJniRelease(wpi.platforms.roborio)
+    roborioRelease wpi.java.vendor.jniRelease(wpi.platforms.roborio)
+
+    if (includeDesktopSupport) {
+        nativeDebug wpi.java.deps.wpilibJniDebug(wpi.platforms.desktop)
+        nativeDebug wpi.java.vendor.jniDebug(wpi.platforms.desktop)
+        simulationDebug wpi.sim.enableDebug()
+
+        nativeRelease wpi.java.deps.wpilibJniRelease(wpi.platforms.desktop)
+        nativeRelease wpi.java.vendor.jniRelease(wpi.platforms.desktop)
+        simulationRelease wpi.sim.enableRelease()
+    }
+
+    testImplementation platform("org.junit:junit-bom:5.10.1")
+    testImplementation "org.junit.jupiter:junit-jupiter-api"
+    testImplementation "org.junit.jupiter:junit-jupiter-params"
+    testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine"
+
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+
+    errorprone "com.google.errorprone:error_prone_core:2.36.0"
+
+    // AdvantageKit autolog (pull version from vendordeps/AdvantageKit.json)
+    def akitFile = file("${projectDir}/vendordeps/AdvantageKit.json")
+    if (akitFile.exists()) {
+        def akitJson = new JsonSlurper().parseText(akitFile.text)
+        annotationProcessor "org.littletonrobotics.akit:akit-autolog:${akitJson.version}"
+    } else {
+        logger.warn("vendordeps/AdvantageKit.json not found; skipping akit-autolog annotationProcessor.")
+    }
+}
+
+compileJava {
+    options.errorprone.disableWarningsInGeneratedCode = true
+    options.errorprone.excludedPaths = ".*/build/generated/.*"
+}
+
+test {
+    useJUnitPlatform()
+    systemProperty "junit.jupiter.extensions.autodetection.enabled", "true"
+}
+
+
+wpi.sim.addGui().defaultEnabled = true
+wpi.sim.addDriverstation().defaultEnabled = true
+
+
+jar {
+    from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
+
+    // Keep your original behavior (include sources)
+    from sourceSets.main.allSource
+
+    // Keep the 2026 template backup convenience
+    from("src") { into "backup/src" }
+    from("vendordeps") { into "backup/vendordeps" }
+    from("build.gradle") { into "backup" }
+
+    manifest edu.wpi.first.gradlerio.GradleRIOPlugin.javaManifest(ROBOT_MAIN_CLASS)
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+}
+
+deployArtifact.jarTask = jar
+wpi.java.configureExecutableTasks(jar)
+wpi.java.configureTestTasks(test)
+
+
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs.add "-XDstringConcat=inline"
+
+    options.errorprone {
+        disable(
+                "EqualsHashCode",
+                "EqualsGetClass",
+                "InlineMeSuggester",
+                "SameNameButDifferent",
+                "ImmutableEnumChecker"
+        )
+    }
+}
+
+
+project.compileJava.dependsOn(spotlessApply)
+spotless {
+    java {
+        target fileTree(".") {
+            include "**/*.java"
+            exclude "**/build/**", "**/build-*/**"
+        }
+        toggleOffOn()
+        removeUnusedImports()
+        importOrder("", "java", "\\#").wildcardsLast()
+        trimTrailingWhitespace()
+        setEncoding(StandardCharsets.UTF_8)
+        indentWithTabs(4)
+    }
+}
+
+def gverOut = layout.buildDirectory.dir("generated/sources/gversion/java")
+gversion {
+    srcDir       = gverOut.get().asFile.absolutePath
+    classPackage = "frc.robot"
+    className    = "BuildInfo"
+
+    dateFormat   = "yyyy-MM-dd HH:mm:ss z"
+    timeZone     = "Asia/Jerusalem"
+    indent       = "\t"
+}
+tasks.withType(JavaCompile).configureEach {
+    dependsOn(tasks.named("createVersionFile"))
+}
+sourceSets { main { java.srcDir(gverOut) } }
+tasks.named("compileJava") { dependsOn("createVersionFile") }
+
+tasks.withType(Javadoc).configureEach {
+    failOnError = false
+    options.encoding = "UTF-8"
+    options.charSet = "UTF-8"
+    options.addStringOption("Xdoclint:none", "-quiet")
+
+    options.windowTitle = "DELib 26 API"
+    options.docTitle = "DELib 26 API"
+    include("frc/DELib26/**")
+    exclude("frc/robot/**")
+}
