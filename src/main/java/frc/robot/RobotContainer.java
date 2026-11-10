@@ -19,9 +19,12 @@ import frc.robot.constants.Constants;
 import frc.robot.constants.Constants.RobotConstants;
 import frc.robot.sim.FieldVisualization;
 import frc.robot.sim.SimCoordinator;
+import frc.robot.subsystems.trainingFlywheel.TrainingFlywheel;
 import frc.robot.subsystems.vision.Vision2026;
 
 import java.util.Optional;
+
+
 
 public class RobotContainer {
 	private static RobotContainer instance;
@@ -44,9 +47,10 @@ public class RobotContainer {
 	// subsystems
 	public final SwerveSubsystem swerveSubsystem;
 	public final VisionSubsystem visionSubsystem;
-
+	public final Optional<TrainingFlywheel> trainingFlywheel; // אני הוספתי
 	// autos
 	public final PathPlannerAutoBuilder autoBuilder;
+
 
 	private RobotContainer() {
 		final boolean isSim = RunMode.isSim();
@@ -67,7 +71,9 @@ public class RobotContainer {
 			);
 
 		this.visionSubsystem = new Vision2026(Constants.VisionConstants.VISION_CONFIG, this.robotState2026);
-
+		this.trainingFlywheel = isSim
+			? Optional.of(new TrainingFlywheel())
+			: Optional.empty();
 		if (isSim) {
 			this.simCoordinator = Optional.of(new SimCoordinator(
 					this.robotState2026,
@@ -103,7 +109,9 @@ public class RobotContainer {
 				for (CANBus bus : CANBusRegistry.getAllCANBuses()) {
 					CANBusStatusLogger.logStatus(bus);
 				}
+				this.trainingFlywheel.ifPresent(TrainingFlywheel::logTelemetry);
 			}
+
 
 		}
 
@@ -113,6 +121,10 @@ public class RobotContainer {
 		} else if (this.loggingMode == RobotConstants.LoggingMode.BASIC) {
 			this.swerveSubsystem.logTelemetry();
 			this.visionSubsystem.logTelemetry();
+		}
+
+		if (this.trainingFlywheel.isPresent()) {
+			this.trainingFlywheel.get().logTelemetry();
 		}
 	}
 

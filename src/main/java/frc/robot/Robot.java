@@ -18,6 +18,7 @@ import frc.DELib26.util.RunMode;
 import frc.DELib26.util.VirtualSubsystem;
 import frc.robot.constants.Constants;
 import frc.robot.sim.SimBindings;
+import frc.robot.subsystems.trainingFlywheel.TrainingFlywheel;
 import org.ironmaple.simulation.SimulatedArena;
 import org.littletonrobotics.junction.LogFileUtil;
 import org.littletonrobotics.junction.LoggedRobot;
@@ -32,6 +33,9 @@ import java.util.Optional;
 
 public class Robot extends LoggedRobot {
 	private Command autonomousCommand;
+	private int trainingTicks = 0;
+
+
 
 	// Only call robot container after you start the logger!!!
 	public Robot() {
@@ -55,6 +59,7 @@ public class Robot extends LoggedRobot {
 				dirtyMes = "Unknown";
 				break;
 		}
+
 		Logger.recordMetadata("GitDirty", dirtyMes);
 
 		Path base = LoggerUtil.getDefaultLogDirectory();
@@ -112,6 +117,8 @@ public class Robot extends LoggedRobot {
 		CommandScheduler.getInstance().schedule(PathfindingCommand.warmupCommand());
 		// In match, this is is overridden to false by the FMS so no problems there.
 		DriverStation.silenceJoystickConnectionWarning(true);
+
+		System.out.println("Hello from robotInit!");
 	}
 
 
@@ -144,6 +151,7 @@ public class Robot extends LoggedRobot {
 		CommandScheduler.getInstance().cancelAll();
 		CommandScheduler.getInstance().getActiveButtonLoop().clear();
 		RobotContainer.getInstance().disableAll();
+		System.out.println("disabled init");
 	}
 
 	@Override
@@ -180,6 +188,7 @@ public class Robot extends LoggedRobot {
 		if (this.autonomousCommand != null) {
 			CommandScheduler.getInstance().schedule(this.autonomousCommand);
 		}
+		System.out.println("autonomous init");
 	}
 
 	@Override
@@ -202,10 +211,15 @@ public class Robot extends LoggedRobot {
 		if (this.autonomousCommand != null) {
 			this.autonomousCommand.cancel();
 		}
+		System.out.println("teleop init");
 	}
 
 	@Override
 	public void teleopPeriodic() {
+		RobotContainer.getInstance().trainingFlywheel.ifPresent(flywheel -> {
+			flywheel.setPercentOutput(TrainingFlywheel.TRAINING_OUTPUT, false);
+		});
+
 	}
 
 	@Override
@@ -219,6 +233,7 @@ public class Robot extends LoggedRobot {
 		CommandScheduler.getInstance().cancelAll();
 		CommandScheduler.getInstance().getActiveButtonLoop().clear();
 		BindingsManager.getInstance().testModeInit();
+		System.out.println("test init");
 	}
 
 	@Override
@@ -242,5 +257,6 @@ public class Robot extends LoggedRobot {
 
 		BindingsManager.getInstance().simBindings.ifPresent(SimBindings::periodic);
 	}
+
 
 }
